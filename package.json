@@ -1,0 +1,10 @@
+{
+  "name": "analytics-canvas-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev apps/frontend",
+    "build": "next build apps/frontend",
+    "start": "next start apps/frontend"
+  }
+}
