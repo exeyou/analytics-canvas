@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 interface Widget {
   id: string;
-  type: 'METRIC_CARD' | 'BAR_CHART';
+  type: 'METRIC_CARD' | 'BAR_CHART' | 'NETWORK_CHART' | 'TEMP_CARD';
   title: string;
 }
 

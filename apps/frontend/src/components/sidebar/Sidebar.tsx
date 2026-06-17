@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { Activity, Database, Sliders } from 'lucide-react';
+import { Activity, Database, Globe, Thermometer, Sliders } from 'lucide-react';
 
 interface SidebarItemProps {
   id: string;
@@ -51,7 +51,7 @@ export function Sidebar() {
   return (
     <div className="w-64 border-r bg-card h-screen p-4 flex flex-col justify-between">
       <div>
-        <div className="font-bold text-lg mb-6 text-foreground px-2">Widgets</div>
+        <div className="font-bold text-lg mb-6 text-foreground px-2">Server Widgets</div>
         <div className="space-y-3">
           <SidebarItem
             id="draggable-metric-cpu"
@@ -64,6 +64,18 @@ export function Sidebar() {
             title="RAM Memory Chart"
             type="BAR_CHART"
             icon={<Database className="h-4 w-4" />}
+          />
+          <SidebarItem
+            id="draggable-chart-net"
+            title="Network Traffic"
+            type="NETWORK_CHART"
+            icon={<Globe className="h-4 w-4" />}
+          />
+          <SidebarItem
+            id="draggable-metric-temp"
+            title="CPU Temperature"
+            type="TEMP_CARD"
+            icon={<Thermometer className="h-4 w-4" />}
           />
         </div>
       </div>

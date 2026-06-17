@@ -12,8 +12,18 @@ interface SystemMetrics {
     ramPercent: number;
     ramUsedGb: string;
     ramTotalGb: string;
+    networkDown: number;
+    networkUp: number;
+    cpuTemp: number;
   };
-  chartData: Array<{ time: string; cpu: number; ram: number }>;
+  chartData: Array<{
+    time: string;
+    cpu: number;
+    ram: number;
+    networkDown: number;
+    networkUp: number;
+    cpuTemp: number;
+  }>;
 }
 
 export function Canvas() {
@@ -30,7 +40,6 @@ export function Canvas() {
 
     socket.onopen = () => {
       setStatus('online');
-      console.log('📡 System socket connected');
     };
 
     socket.onmessage = (event) => {
@@ -46,7 +55,6 @@ export function Canvas() {
 
     socket.onclose = () => {
       setStatus('offline');
-      console.log('System socket disconnected');
     };
 
     const handleIntervalChange = (e: Event) => {
@@ -67,12 +75,12 @@ export function Canvas() {
     };
   }, []);
 
-  const getChartDataForType = (type: 'cpu' | 'ram') => {
+  const getChartDataForType = (type: 'ram' | 'network') => {
     if (!metrics) return [];
     return metrics.chartData.map(point => ({
       time: point.time,
-      uv: type === 'cpu' ? point.cpu : point.ram,
-      pv: 0
+      uv: type === 'ram' ? point.ram : point.networkDown,
+      pv: type === 'network' ? point.networkUp : 0
     }));
   };
 
@@ -85,7 +93,7 @@ export function Canvas() {
     >
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold text-foreground">Server Monitoring Panel</h2>
+          <h2 className="text-xl font-bold text-foreground">Server Monitoring Dashboard</h2>
           <p className="text-xs text-muted-foreground mt-1">Real-time metrics of the current OS node</p>
         </div>
 
@@ -99,57 +107,82 @@ export function Canvas() {
 
       {widgets.length === 0 ? (
         <div className="flex items-center justify-center h-[70%] border border-dashed rounded-xl">
-          <p className="text-muted-foreground text-sm">Drag and drop a CPU or Memory widget onto the canvas</p>
+          <p className="text-muted-foreground text-sm">Drag widgets here from the left panel</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {widgets.map((widget) => (
-            <div key={widget.id} className="bg-card border rounded-xl p-4 shadow-sm relative group">
-              <button
-                onClick={() => removeWidget(widget.id)}
-                className="absolute top-2 right-2 text-muted-foreground hover:text-destructive text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                Delete
-              </button>
+          {widgets.map((widget) => {
+            const uType = widget.type.toUpperCase();
+            return (
+              <div key={widget.id} className="bg-card border rounded-xl p-4 shadow-sm relative group">
+                <button
+                  onClick={() => removeWidget(widget.id)}
+                  className="absolute top-2 right-2 text-muted-foreground hover:text-destructive text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  Delete
+                </button>
 
-              <div className="text-xs text-muted-foreground mb-2 font-mono uppercase tracking-wider">
-                {widget.type}
-              </div>
-              <h4 className="font-semibold mb-4 text-card-foreground">{widget.title}</h4>
+                <div className="text-xs text-muted-foreground mb-2 font-mono uppercase tracking-wider">
+                  {widget.type}
+                </div>
+                <h4 className="font-semibold mb-4 text-card-foreground">{widget.title}</h4>
 
-              <div className="min-h-[140px]">
-                {widget.type.toUpperCase() === 'METRIC_CARD' ? (
-                  <MetricCard
-                    title="Current CPU Load"
-                    value={metrics ? `${metrics.current.cpu}%` : 'Collecting...'}
-                    description="across all CPU cores"
-                  />
-                ) : widget.type.toUpperCase() === 'BAR_CHART' ? (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1 px-1 flex justify-between">
-                      <span>Memory Usage (RAM %)</span>
-                      {metrics?.current.ramUsedGb && (
-                        <span className="font-mono">
-                          {metrics.current.ramUsedGb} GB / {metrics.current.ramTotalGb} GB
-                        </span>
+                <div className="min-h-[140px]">
+                  {uType === 'METRIC_CARD' ? (
+                    <MetricCard
+                      title="CPU Load"
+                      value={metrics ? `${metrics.current.cpu}%` : 'Collecting...'}
+                      description="total across all cores"
+                    />
+                  ) : uType === 'TEMP_CARD' ? (
+                    <MetricCard
+                      title="CPU Core Temperature"
+                      value={metrics ? `${metrics.current.cpuTemp} °C` : 'Collecting...'}
+                      description={metrics && metrics.current.cpuTemp > 75 ? 'Elevated heating' : 'Normal state'}
+                    />
+                  ) : uType === 'BAR_CHART' ? (
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1 px-1 flex justify-between">
+                        <span>Memory Usage (RAM %)</span>
+                        {metrics?.current.ramUsedGb && (
+                          <span className="font-mono">
+                            {metrics.current.ramUsedGb} GB / {metrics.current.ramTotalGb} GB
+                          </span>
+                        )}
+                      </div>
+                      {metrics ? (
+                        <BarChartWidget data={getChartDataForType('ram')} />
+                      ) : (
+                        <div className="text-xs text-muted-foreground flex items-center justify-center h-32">
+                          Waiting for OS tick...
+                        </div>
                       )}
                     </div>
-                    {metrics ? (
-                      <BarChartWidget data={getChartDataForType('ram')} />
-                    ) : (
-                      <div className="text-xs text-muted-foreground flex items-center justify-center h-32">
-                        Waiting for first OS tick...
+                  ) : uType === 'NETWORK_CHART' ? (
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1 px-1 flex justify-between">
+                        <span>Network Speed (Download)</span>
+                        {metrics?.current && (
+                          <span className="font-mono text-emerald-500">
+                            Down: {metrics.current.networkDown} Mbps Up: {metrics.current.networkUp} Mbps
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20">
-                    Data type error: provided type "{widget.type}"
-                  </div>
-                )}
+                      {metrics ? (
+                        <BarChartWidget data={getChartDataForType('network')} />
+                      ) : (
+                        <div className="text-xs text-muted-foreground flex items-center justify-center h-32">
+                          Analyzing network packets...
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Unknown type</div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
