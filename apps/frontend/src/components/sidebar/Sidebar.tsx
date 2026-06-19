@@ -43,9 +43,7 @@ export function Sidebar() {
   const handleIntervalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number(e.target.value);
     setIntervalTime(value);
-
-    const event = new CustomEvent('change_ws_interval', { detail: value });
-    window.dispatchEvent(event);
+    window.dispatchEvent(new CustomEvent('change_ws_interval', { detail: value }));
   };
 
   return (
@@ -55,25 +53,25 @@ export function Sidebar() {
         <div className="space-y-3">
           <SidebarItem
             id="draggable-metric-cpu"
-            title="CPU Card"
+            title="CPU Load Card"
             type="METRIC_CARD"
             icon={<Activity className="h-4 w-4" />}
           />
           <SidebarItem
             id="draggable-chart-ram"
-            title="RAM Memory Chart"
+            title="RAM Analytics Chart"
             type="BAR_CHART"
             icon={<Database className="h-4 w-4" />}
           />
           <SidebarItem
             id="draggable-chart-net"
-            title="Network Traffic"
+            title="Network Interface Traffic"
             type="NETWORK_CHART"
             icon={<Globe className="h-4 w-4" />}
           />
           <SidebarItem
             id="draggable-metric-temp"
-            title="CPU Temperature"
+            title="CPU Temperature Sensor"
             type="TEMP_CARD"
             icon={<Thermometer className="h-4 w-4" />}
           />

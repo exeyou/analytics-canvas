@@ -11,6 +11,7 @@
   --muted-foreground: 113 113 122;
   --primary: 37 99 235;
   --border: 228 228 231;
+  --destructive: 239 68 68;
 }
 
 body {

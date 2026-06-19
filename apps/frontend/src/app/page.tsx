@@ -16,23 +16,19 @@ export default function DashboardPage() {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
     if (!over || over.id !== 'canvas-dropzone') return;
 
     const activeData = active.data.current;
-
     if (activeData && activeData.type) {
-      const widgetType = activeData.type.toUpperCase();
-
       addWidget({
-        type: widgetType as 'METRIC_CARD' | 'BAR_CHART',
-        title: activeData.title || 'New Widget',
+        type: activeData.type.toUpperCase() as 'METRIC_CARD' | 'BAR_CHART' | 'NETWORK_CHART' | 'TEMP_CARD',
+        title: activeData.title || 'Telemetry Widget',
       });
     }
   };
 
   if (!isMounted) {
-    return <div className="flex h-screen bg-background items-center justify-center text-muted-foreground">Loading interface...</div>;
+    return <div className="flex h-screen bg-background items-center justify-center text-muted-foreground font-mono">Initializing operational UI...</div>;
   }
 
   return (

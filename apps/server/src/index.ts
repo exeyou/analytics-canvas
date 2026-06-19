@@ -1,10 +1,22 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import si from 'systeminformation';
+import * as dotenv from 'dotenv';
+import { PrismaClient, type Widget as PrismaWidget } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+
+dotenv.config();
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+const adapter = new PrismaPg(pool);
+
+const prisma = new PrismaClient({ adapter });
 
 const PORT = Number(process.env.PORT) || 4000;
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`System WebSocket monitor started on port ${PORT}`);
+console.log(`WebSocket server running on port ${PORT}`);
 
 let updateIntervalTime = 2000;
 let intervalInstance: NodeJS.Timeout | null = null;
@@ -19,6 +31,27 @@ interface MetricPoint {
 }
 let metricsHistory: MetricPoint[] = [];
 
+let globalStats = {
+  cpu: { totalSum: 0, count: 0, min: 100, max: 0, avg: 0 },
+  ram: { totalSum: 0, count: 0, min: 100, max: 0, avg: 0 },
+  networkDown: { totalSum: 0, count: 0, min: 9999, max: 0, avg: 0 },
+  cpuTemp: { totalSum: 0, count: 0, min: 200, max: 0, avg: 0 }
+};
+
+const updateAggregate = (metricKey: keyof typeof globalStats, currentValue: number) => {
+  const meta = globalStats[metricKey];
+  meta.count += 1;
+  meta.totalSum += currentValue;
+  if (currentValue < meta.min) meta.min = currentValue;
+  if (currentValue > meta.max) meta.max = currentValue;
+  meta.avg = Number((meta.totalSum / meta.count).toFixed(2));
+};
+
+const calculatePercentageDeviation = (avg: number, current: number): number => {
+  if (avg === 0) return 0;
+  return Number((((current - avg) / avg) * 100).toFixed(1));
+};
+
 const getSystemMetrics = async () => {
   const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -31,7 +64,6 @@ const getSystemMetrics = async () => {
     ]);
 
     const cpuLoad = Math.round(cpuData.currentLoad);
-
     const totalRamGb = memData.total / (1024 ** 3);
     const activeRamGb = memData.active / (1024 ** 3);
     const ramPercent = Math.round((activeRamGb / totalRamGb) * 100);
@@ -39,8 +71,12 @@ const getSystemMetrics = async () => {
     const primaryNet = netData[0];
     const netDownMbit = primaryNet ? Math.max(0, Number(((primaryNet.rx_sec * 8) / (1024 * 1024)).toFixed(1))) : 0;
     const netUpMbit = primaryNet ? Math.max(0, Number(((primaryNet.tx_sec * 8) / (1024 * 1024)).toFixed(1))) : 0;
-
     const cpuTemp = Math.round(tempData.main) || Math.floor(Math.random() * (52 - 42 + 1) + 42);
+
+    updateAggregate('cpu', cpuLoad);
+    updateAggregate('ram', ramPercent);
+    updateAggregate('networkDown', netDownMbit);
+    updateAggregate('cpuTemp', cpuTemp);
 
     const newPoint: MetricPoint = {
       time: timeLabel,
@@ -61,18 +97,28 @@ const getSystemMetrics = async () => {
       data: {
         current: {
           cpu: cpuLoad,
+          cpuDeviation: calculatePercentageDeviation(globalStats.cpu.avg, cpuLoad),
           ramPercent: ramPercent,
+          ramDeviation: calculatePercentageDeviation(globalStats.ram.avg, ramPercent),
           ramUsedGb: activeRamGb.toFixed(2),
           ramTotalGb: totalRamGb.toFixed(2),
           networkDown: netDownMbit,
+          networkDownDeviation: calculatePercentageDeviation(globalStats.networkDown.avg, netDownMbit),
           networkUp: netUpMbit,
-          cpuTemp: cpuTemp
+          cpuTemp: cpuTemp,
+          cpuTempDeviation: calculatePercentageDeviation(globalStats.cpuTemp.avg, cpuTemp)
         },
-        chartData: metricsHistory
+        chartData: metricsHistory,
+        analytics: {
+          cpu: { min: globalStats.cpu.min, max: globalStats.cpu.max, avg: globalStats.cpu.avg },
+          ram: { min: globalStats.ram.min, max: globalStats.ram.max, avg: globalStats.ram.avg },
+          networkDown: { min: globalStats.networkDown.min, max: globalStats.networkDown.max, avg: globalStats.networkDown.avg },
+          cpuTemp: { min: globalStats.cpuTemp.min, max: globalStats.cpuTemp.max, avg: globalStats.cpuTemp.avg }
+        }
       }
     };
   } catch (error) {
-    console.error('Error collecting system metrics:', error);
+    console.error('Error fetching system metrics:', error);
     return null;
   }
 };
@@ -82,7 +128,6 @@ const startBroadcastLoop = () => {
 
   intervalInstance = setInterval(async () => {
     if (wss.clients.size === 0) return;
-
     const metrics = await getSystemMetrics();
     if (!metrics) return;
 
@@ -96,32 +141,26 @@ const startBroadcastLoop = () => {
 };
 
 wss.on('connection', async (ws: WebSocket) => {
-  console.log('Monitor: new client connected');
+  console.log('Client connected');
+
+  try {
+    const savedWidgets = await prisma.widget.findMany({ orderBy: { createdAt: 'asc' } });
+    ws.send(JSON.stringify({
+      event: 'LOAD_LAYOUT',
+      data: savedWidgets.map((w: PrismaWidget) => ({ id: w.id, type: w.type, title: w.title }))
+    }));
+  } catch (err) {
+    console.error('Database read error:', err);
+  }
 
   if (metricsHistory.length === 0) {
     await getSystemMetrics();
   }
 
-  const lastPoint = metricsHistory[metricsHistory.length - 1];
-  ws.send(JSON.stringify({
-    event: 'SYSTEM_METRICS_UPDATE',
-    data: {
-      current: lastPoint ? {
-        cpu: lastPoint.cpu,
-        ramPercent: lastPoint.ram,
-        ramUsedGb: '...',
-        ramTotalGb: '...',
-        networkDown: lastPoint.networkDown,
-        networkUp: lastPoint.networkUp,
-        cpuTemp: lastPoint.cpuTemp
-      } : { cpu: 0, ramPercent: 0, ramUsedGb: '0', ramTotalGb: '0', networkDown: 0, networkUp: 0, cpuTemp: 35 },
-      chartData: metricsHistory
-    }
-  }));
-
-  ws.on('message', (message: string) => {
+  ws.on('message', async (message: string) => {
     try {
       const parsed = JSON.parse(message);
+
       if (parsed.action === 'CHANGE_INTERVAL') {
         const newTime = Number(parsed.value);
         if (newTime >= 200 && newTime <= 5000) {
@@ -130,8 +169,19 @@ wss.on('connection', async (ws: WebSocket) => {
           startBroadcastLoop();
         }
       }
+
+      if (parsed.action === 'SAVE_LAYOUT') {
+        const frontendWidgets = parsed.widgets as Array<{ id: string; type: string; title: string }>;
+        await prisma.$transaction([
+          prisma.widget.deleteMany({}),
+          prisma.widget.createMany({
+            data: frontendWidgets.map((w: { id: string; type: string; title: string }) => ({ id: w.id, type: w.type, title: w.title }))
+          })
+        ]);
+        console.log('Layout configuration synced to database');
+      }
     } catch (e) {
-      console.error(e);
+      console.error('Error handling event message:', e);
     }
   });
 

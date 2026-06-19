@@ -1,0 +1,14 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Widget {
+  id        String   @id
+  type      String
+  title     String
+  createdAt DateTime @default(now())
+}
