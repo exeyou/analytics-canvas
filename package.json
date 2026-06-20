@@ -1,5 +1,5 @@
 {
-  "name": "analytics-canvas-workspace",
+  "name": "analytics-canvas-root",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
@@ -7,7 +7,12 @@
     "apps/server"
   ],
   "scripts": {
-    "dev:frontend": "npm run dev -w apps/frontend",
-    "dev:server": "npm run dev -w apps/server"
+    "setup": "npm install && npm run db:push --workspace=apps/server",
+    "dev:frontend": "npm run dev --workspace=apps/frontend",
+    "dev:server": "npm run dev --workspace=apps/server",
+    "dev": "concurrently \"npm:dev:frontend\" \"npm:dev:server\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
   }
 }
