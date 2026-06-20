@@ -2,12 +2,13 @@
 
 import React, { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { Activity, Database, Globe, Thermometer, Sliders } from 'lucide-react';
+import { useDashboardStore, ListenerMap } from '../../store/useDashboardStore';
+import { Activity, Database, Globe, Thermometer, Sliders, Power, PowerOff } from 'lucide-react';
 
 interface SidebarItemProps {
   id: string;
   title: string;
-  type: string;
+  type: keyof ListenerMap;
   icon: React.ReactNode;
 }
 
@@ -17,6 +18,9 @@ function SidebarItem({ id, title, type, icon }: SidebarItemProps) {
     data: { title, type },
   });
 
+  const activeListeners = useDashboardStore((state) => state.listeners);
+  const isListening = activeListeners[type] ?? true;
+
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 }
     : undefined;
@@ -25,14 +29,23 @@ function SidebarItem({ id, title, type, icon }: SidebarItemProps) {
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      className={`flex items-center gap-3 p-3 border rounded-xl bg-card hover:bg-muted/50 cursor-grab active:cursor-grabbing transition-colors shadow-sm ${
+      className={`flex items-center justify-between p-3 border rounded-xl bg-card transition-all shadow-sm ${
         isDragging ? 'opacity-50 border-primary' : 'border-border'
       }`}
     >
-      <div className="text-primary">{icon}</div>
-      <div className="text-sm font-medium text-card-foreground">{title}</div>
+      <div {...listeners} {...attributes} className="flex items-center gap-3 cursor-grab active:cursor-grabbing flex-1">
+        <div className="text-primary">{icon}</div>
+        <div className="text-sm font-medium text-card-foreground">{title}</div>
+      </div>
+
+      <button
+        onClick={() => useDashboardStore.getState().toggleListener(type)}
+        className={`p-1.5 rounded-md transition-colors ${
+          isListening ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-muted text-muted-foreground hover:bg-secondary'
+        }`}
+      >
+        {isListening ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
+      </button>
     </div>
   );
 }
@@ -51,30 +64,10 @@ export function Sidebar() {
       <div>
         <div className="font-bold text-lg mb-6 text-foreground px-2">Server Widgets</div>
         <div className="space-y-3">
-          <SidebarItem
-            id="draggable-metric-cpu"
-            title="CPU Load Card"
-            type="METRIC_CARD"
-            icon={<Activity className="h-4 w-4" />}
-          />
-          <SidebarItem
-            id="draggable-chart-ram"
-            title="RAM Analytics Chart"
-            type="BAR_CHART"
-            icon={<Database className="h-4 w-4" />}
-          />
-          <SidebarItem
-            id="draggable-chart-net"
-            title="Network Interface Traffic"
-            type="NETWORK_CHART"
-            icon={<Globe className="h-4 w-4" />}
-          />
-          <SidebarItem
-            id="draggable-metric-temp"
-            title="CPU Temperature Sensor"
-            type="TEMP_CARD"
-            icon={<Thermometer className="h-4 w-4" />}
-          />
+          <SidebarItem id="draggable-metric-cpu" title="CPU Load Card" type="METRIC_CARD" icon={<Activity className="h-4 w-4" />} />
+          <SidebarItem id="draggable-chart-ram" title="RAM Analytics Chart" type="BAR_CHART" icon={<Database className="h-4 w-4" />} />
+          <SidebarItem id="draggable-chart-net" title="Network Interface Traffic" type="NETWORK_CHART" icon={<Globe className="h-4 w-4" />} />
+          <SidebarItem id="draggable-metric-temp" title="CPU Temperature Sensor" type="TEMP_CARD" icon={<Thermometer className="h-4 w-4" />} />
         </div>
       </div>
 
@@ -97,10 +90,6 @@ export function Sidebar() {
             onChange={handleIntervalChange}
             className="w-full h-1.5 bg-border rounded-lg appearance-none cursor-pointer accent-primary"
           />
-          <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>0.2s (Realtime)</span>
-            <span>5s</span>
-          </div>
         </div>
       </div>
     </div>

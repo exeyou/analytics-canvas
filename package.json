@@ -1,16 +1,13 @@
 {
-  "name": "analytics-canvas-root",
+  "name": "analytics-canvas-workspace",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "apps/frontend",
+    "apps/server"
+  ],
   "scripts": {
-    "dev": "next dev apps/frontend",
-    "build": "next build apps/frontend",
-    "start": "next start apps/frontend"
-  },
-  "dependencies": {
-    "@prisma/client": "^7.8.0"
-  },
-  "devDependencies": {
-    "prisma": "^7.8.0"
+    "dev:frontend": "npm run dev -w apps/frontend",
+    "dev:server": "npm run dev -w apps/server"
   }
 }

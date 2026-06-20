@@ -6,35 +6,80 @@ export interface Widget {
   title: string;
 }
 
-interface DashboardState {
-  widgets: Widget[];
-  setWidgets: (widgets: Widget[]) => void;
-  addWidget: (widget: Omit<Widget, 'id'>) => Widget[];
-  removeWidget: (id: string) => Widget[];
+export interface ListenerMap {
+  METRIC_CARD: boolean;
+  BAR_CHART: boolean;
+  NETWORK_CHART: boolean;
+  TEMP_CARD: boolean;
 }
 
-export const useDashboardStore = create<DashboardState>((set) => ({
+interface DashboardState {
+  widgets: Widget[];
+  listeners: ListenerMap;
+  socket: WebSocket | null;
+  isInitialized: boolean;
+  setSocket: (socket: WebSocket | null) => void;
+  setWidgets: (widgets: Widget[]) => void;
+  setListeners: (listeners: ListenerMap) => void;
+  setInitialized: (initialized: boolean) => void;
+  addWidget: (widget: Omit<Widget, 'id'>) => void;
+  removeWidget: (id: string) => void;
+  toggleListener: (type: keyof ListenerMap) => void;
+}
+
+const syncWithServer = (socket: WebSocket | null, widgets: Widget[], listeners: ListenerMap, isInitialized: boolean) => {
+  if (!isInitialized) return;
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      action: 'SAVE_LAYOUT',
+      widgets,
+      listeners
+    }));
+  }
+};
+
+export const useDashboardStore = create<DashboardState>((set, get) => ({
   widgets: [],
-  setWidgets: (widgets) => set({ widgets }),
-  addWidget: (newWidget) => {
-    let updated: Widget[] = [];
-    set((state) => {
-      const filteredWidgets = state.widgets.filter((w) => w.type !== newWidget.type);
-      const createdWidget: Widget = {
-        ...newWidget,
-        id: `${newWidget.type}-${Date.now()}`,
-      };
-      updated = [...filteredWidgets, createdWidget];
-      return { widgets: updated };
-    });
-    return updated;
+  listeners: {
+    METRIC_CARD: true,
+    BAR_CHART: true,
+    NETWORK_CHART: true,
+    TEMP_CARD: true,
   },
+  socket: null,
+  isInitialized: false,
+
+  setSocket: (socket) => set({ socket }),
+  setWidgets: (widgets) => set({ widgets }),
+  setListeners: (listeners) => set({ listeners }),
+  setInitialized: (initialized) => set({ isInitialized: initialized }),
+
+  addWidget: (newWidget) => {
+    const createdWidget: Widget = {
+      ...newWidget,
+      id: `${newWidget.type}-${Date.now()}`,
+    };
+    const filteredWidgets = get().widgets.filter((w) => w.type !== newWidget.type);
+    const updatedWidgets = [...filteredWidgets, createdWidget];
+
+    set({ widgets: updatedWidgets });
+    syncWithServer(get().socket, updatedWidgets, get().listeners, get().isInitialized);
+  },
+
   removeWidget: (id) => {
-    let updated: Widget[] = [];
-    set((state) => {
-      updated = state.widgets.filter((w) => w.id !== id);
-      return { widgets: updated };
-    });
-    return updated;
+    const updatedWidgets = get().widgets.filter((w) => w.id !== id);
+
+    set({ widgets: updatedWidgets });
+    syncWithServer(get().socket, updatedWidgets, get().listeners, get().isInitialized);
+  },
+
+  toggleListener: (type) => {
+    const updatedListeners = {
+      ...get().listeners,
+      [type]: !get().listeners[type],
+    };
+
+    set({ listeners: updatedListeners });
+    syncWithServer(get().socket, get().widgets, updatedListeners, get().isInitialized);
   },
 }));

@@ -1,16 +1,14 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import si from 'systeminformation';
 import * as dotenv from 'dotenv';
-import { PrismaClient, type Widget as PrismaWidget } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 
 dotenv.config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-
 const adapter = new PrismaPg(pool);
-
 const prisma = new PrismaClient({ adapter });
 
 const PORT = Number(process.env.PORT) || 4000;
@@ -21,17 +19,19 @@ console.log(`WebSocket server running on port ${PORT}`);
 let updateIntervalTime = 2000;
 let intervalInstance: NodeJS.Timeout | null = null;
 
-interface MetricPoint {
-  time: string;
-  cpu: number;
-  ram: number;
-  networkDown: number;
-  networkUp: number;
-  cpuTemp: number;
-}
-let metricsHistory: MetricPoint[] = [];
+const activeListenersCache = {
+  METRIC_CARD: true,
+  BAR_CHART: true,
+  NETWORK_CHART: true,
+  TEMP_CARD: true,
+};
 
-let globalStats = {
+interface MetricPoint {
+  time: string; cpu: number; ram: number; networkDown: number; networkUp: number; cpuTemp: number;
+}
+const metricsHistory: MetricPoint[] = [];
+
+const globalStats = {
   cpu: { totalSum: 0, count: 0, min: 100, max: 0, avg: 0 },
   ram: { totalSum: 0, count: 0, min: 100, max: 0, avg: 0 },
   networkDown: { totalSum: 0, count: 0, min: 9999, max: 0, avg: 0 },
@@ -63,50 +63,39 @@ const getSystemMetrics = async () => {
       si.cpuTemperature()
     ]);
 
-    const cpuLoad = Math.round(cpuData.currentLoad);
+    const lastPoint = metricsHistory[metricsHistory.length - 1];
+
+    const cpuLoad = activeListenersCache.METRIC_CARD ? Math.round(cpuData.currentLoad) : (lastPoint?.cpu || 0);
     const totalRamGb = memData.total / (1024 ** 3);
     const activeRamGb = memData.active / (1024 ** 3);
-    const ramPercent = Math.round((activeRamGb / totalRamGb) * 100);
+    const ramPercent = activeListenersCache.BAR_CHART ? Math.round((activeRamGb / totalRamGb) * 100) : (lastPoint?.ram || 0);
 
     const primaryNet = netData[0];
-    const netDownMbit = primaryNet ? Math.max(0, Number(((primaryNet.rx_sec * 8) / (1024 * 1024)).toFixed(1))) : 0;
-    const netUpMbit = primaryNet ? Math.max(0, Number(((primaryNet.tx_sec * 8) / (1024 * 1024)).toFixed(1))) : 0;
-    const cpuTemp = Math.round(tempData.main) || Math.floor(Math.random() * (52 - 42 + 1) + 42);
+    const netDownMbit = activeListenersCache.NETWORK_CHART && primaryNet ? Math.max(0, Number(((primaryNet.rx_sec * 8) / (1024 * 1024)).toFixed(1))) : (lastPoint?.networkDown || 0);
+    const netUpMbit = activeListenersCache.NETWORK_CHART && primaryNet ? Math.max(0, Number(((primaryNet.tx_sec * 8) / (1024 * 1024)).toFixed(1))) : (lastPoint?.networkUp || 0);
+    const cpuTemp = activeListenersCache.TEMP_CARD ? (Math.round(tempData.main) || Math.floor(Math.random() * (52 - 42 + 1) + 42)) : (lastPoint?.cpuTemp || 0);
 
-    updateAggregate('cpu', cpuLoad);
-    updateAggregate('ram', ramPercent);
-    updateAggregate('networkDown', netDownMbit);
-    updateAggregate('cpuTemp', cpuTemp);
+    if (activeListenersCache.METRIC_CARD) updateAggregate('cpu', cpuLoad);
+    if (activeListenersCache.BAR_CHART) updateAggregate('ram', ramPercent);
+    if (activeListenersCache.NETWORK_CHART) updateAggregate('networkDown', netDownMbit);
+    if (activeListenersCache.TEMP_CARD) updateAggregate('cpuTemp', cpuTemp);
 
     const newPoint: MetricPoint = {
-      time: timeLabel,
-      cpu: cpuLoad,
-      ram: ramPercent,
-      networkDown: netDownMbit,
-      networkUp: netUpMbit,
-      cpuTemp: cpuTemp
+      time: timeLabel, cpu: cpuLoad, ram: ramPercent, networkDown: netDownMbit, networkUp: netUpMbit, cpuTemp: cpuTemp
     };
 
     metricsHistory.push(newPoint);
-    if (metricsHistory.length > 15) {
-      metricsHistory.shift();
-    }
+    if (metricsHistory.length > 15) metricsHistory.shift();
 
     return {
       event: 'SYSTEM_METRICS_UPDATE',
       data: {
         current: {
-          cpu: cpuLoad,
-          cpuDeviation: calculatePercentageDeviation(globalStats.cpu.avg, cpuLoad),
-          ramPercent: ramPercent,
-          ramDeviation: calculatePercentageDeviation(globalStats.ram.avg, ramPercent),
-          ramUsedGb: activeRamGb.toFixed(2),
-          ramTotalGb: totalRamGb.toFixed(2),
-          networkDown: netDownMbit,
-          networkDownDeviation: calculatePercentageDeviation(globalStats.networkDown.avg, netDownMbit),
-          networkUp: netUpMbit,
-          cpuTemp: cpuTemp,
-          cpuTempDeviation: calculatePercentageDeviation(globalStats.cpuTemp.avg, cpuTemp)
+          cpu: cpuLoad, cpuDeviation: calculatePercentageDeviation(globalStats.cpu.avg, cpuLoad),
+          ramPercent: ramPercent, ramDeviation: calculatePercentageDeviation(globalStats.ram.avg, ramPercent),
+          ramUsedGb: activeRamGb.toFixed(2), ramTotalGb: totalRamGb.toFixed(2),
+          networkDown: netDownMbit, networkDownDeviation: calculatePercentageDeviation(globalStats.networkDown.avg, netDownMbit),
+          networkUp: netUpMbit, cpuTemp: cpuTemp, cpuTempDeviation: calculatePercentageDeviation(globalStats.cpuTemp.avg, cpuTemp)
         },
         chartData: metricsHistory,
         analytics: {
@@ -142,50 +131,81 @@ const startBroadcastLoop = () => {
 
 wss.on('connection', async (ws: WebSocket) => {
   console.log('Client connected');
+  let layoutLoaded = false;
 
   try {
-    const savedWidgets = await prisma.widget.findMany({ orderBy: { createdAt: 'asc' } });
-    ws.send(JSON.stringify({
-      event: 'LOAD_LAYOUT',
-      data: savedWidgets.map((w: PrismaWidget) => ({ id: w.id, type: w.type, title: w.title }))
-    }));
-  } catch (err) {
-    console.error('Database read error:', err);
-  }
+    const [savedWidgets, savedListeners] = await Promise.all([
+      prisma.widget.findMany({ orderBy: { createdAt: 'asc' } }),
+      prisma.listenerState.findMany()
+    ]);
 
-  if (metricsHistory.length === 0) {
-    await getSystemMetrics();
+    if (savedListeners && savedListeners.length > 0) {
+      savedListeners.forEach((row) => {
+        if (row.type in activeListenersCache) {
+          activeListenersCache[row.type as keyof typeof activeListenersCache] = row.isActive;
+        }
+      });
+    }
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        event: 'LOAD_LAYOUT',
+        data: {
+          widgets: savedWidgets.map((w) => ({ id: w.id, type: w.type, title: w.title })),
+          listeners: activeListenersCache
+        }
+      }));
+      layoutLoaded = true;
+    }
+  } catch (err) {
+    console.error('Database read error during handshake:', err);
   }
 
   ws.on('message', async (message: string) => {
     try {
-      const parsed = JSON.parse(message);
+      const parsed = JSON.parse(message.toString());
 
-      if (parsed.action === 'CHANGE_INTERVAL') {
-        const newTime = Number(parsed.value);
-        if (newTime >= 200 && newTime <= 5000) {
-          updateIntervalTime = newTime;
-          console.log(`Interval changed to: ${updateIntervalTime}ms`);
-          startBroadcastLoop();
-        }
+      if (parsed.action === 'CHANGE_INTERVAL' && typeof parsed.value === 'number') {
+        updateIntervalTime = parsed.value;
+        startBroadcastLoop();
+        return;
       }
 
       if (parsed.action === 'SAVE_LAYOUT') {
-        const frontendWidgets = parsed.widgets as Array<{ id: string; type: string; title: string }>;
+        if (!layoutLoaded) return;
+
+        const incomingWidgets = parsed.widgets as Array<{ id: string; type: string; title: string }>;
+        const incomingListeners = parsed.listeners as Record<string, boolean>;
+
         await prisma.$transaction([
           prisma.widget.deleteMany({}),
           prisma.widget.createMany({
-            data: frontendWidgets.map((w: { id: string; type: string; title: string }) => ({ id: w.id, type: w.type, title: w.title }))
-          })
+            data: incomingWidgets.map((w) => ({ id: w.id, type: w.type, title: w.title }))
+          }),
+          ...Object.entries(incomingListeners).map(([type, isActive]) =>
+            prisma.listenerState.upsert({
+              where: { type },
+              update: { isActive },
+              create: { type, isActive }
+            })
+          )
         ]);
-        console.log('Layout configuration synced to database');
+
+        Object.entries(incomingListeners).forEach(([type, isActive]) => {
+          if (type in activeListenersCache) {
+            activeListenersCache[type as keyof typeof activeListenersCache] = isActive;
+          }
+        });
       }
     } catch (e) {
-      console.error('Error handling event message:', e);
+      console.error('Error handling transaction message:', e);
     }
   });
 
-  ws.on('close', () => console.log('Client disconnected'));
+  ws.on('close', () => {
+    layoutLoaded = false;
+    console.log('Client disconnected');
+  });
 });
 
 startBroadcastLoop();

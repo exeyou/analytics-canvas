@@ -1,0 +1,9 @@
+.next/
+out/
+build/
+
+.next/cache/
+
+.env*.local
+
+.vercel

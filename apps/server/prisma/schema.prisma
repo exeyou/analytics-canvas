@@ -1,9 +1,11 @@
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["adapterApi"]
 }
 
 model Widget {
@@ -11,4 +13,9 @@ model Widget {
   type      String
   title     String
   createdAt DateTime @default(now())
+}
+
+model ListenerState {
+  type      String   @id
+  isActive  Boolean  @default(true)
 }

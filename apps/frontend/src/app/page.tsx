@@ -28,7 +28,11 @@ export default function DashboardPage() {
   };
 
   if (!isMounted) {
-    return <div className="flex h-screen bg-background items-center justify-center text-muted-foreground font-mono">Initializing operational UI...</div>;
+    return (
+      <div className="flex h-screen bg-background items-center justify-center text-muted-foreground font-mono">
+        Initializing operational UI...
+      </div>
+    );
   }
 
   return (
